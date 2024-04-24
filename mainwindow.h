@@ -25,8 +25,11 @@ private slots:
 
     void on_previousDayButton_clicked();
 
+    void on_dayInfo_toggled(bool checked);
+
 private:
     Ui::MainWindow *ui;
-    QSqlDatabase db;
+    QSqlDatabase staticDb;
+    QSqlDatabase daysDb;
 };
 #endif // MAINWINDOW_H

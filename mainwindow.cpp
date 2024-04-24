@@ -16,27 +16,27 @@ MainWindow::MainWindow(QWidget *parent) :
     ui->setupUi(this);
 
     qDebug() << "Доступные драйверы:" << QSqlDatabase::drivers();
-    QSqlDatabase db = QSqlDatabase::addDatabase("QIBASE");
-    db.setHostName("172.18.110.56");
-    db.setDatabaseName("C:\\ACS\\Base\\ACS.fdb");
-    db.setUserName("ADM");
-    db.setPassword("700");
-    db.setPort(3050);
+    staticDb = QSqlDatabase::addDatabase("QIBASE", "staticInfoDatabase");
+    staticDb.setHostName("172.18.110.56");
+    staticDb.setDatabaseName("C:\\ACS\\Base\\ACS.fdb");
+    staticDb.setUserName("ADM");
+    staticDb.setPassword("700");
+    staticDb.setPort(3050);
 
-//    QSqlDatabase daysDatabase = QSqlDatabase::addDatabase("QIBASE");
-//    daysDatabase.setHostName("172.18.110.56");
-//    daysDatabase.setDatabaseName("C:\\ACS\\Base\\ACS_LOG.fdb");
-//    daysDatabase.setUserName("ADM");
-//    daysDatabase.setPassword("700");
-//    daysDatabase.setPort(3050);
+    daysDb = QSqlDatabase::addDatabase("QIBASE", "daysInfoDatabase");
+    daysDb.setHostName("172.18.110.56");
+    daysDb.setDatabaseName("C:\\ACS\\Base\\ACS_LOG.fdb");
+    daysDb.setUserName("ADM");
+    daysDb.setPassword("700");
+    daysDb.setPort(3050);
 
-//    if (daysDatabase.open()){
-//        qDebug() << "Соежинение отрыто (динамеческие таблицы)";
-//    }
+    if (daysDb.open()){
+        qDebug() << "Соединение отрыто (динамеческие таблицы)";
+    }
 
-    if(db.open()) {
-        qDebug() << "Соединение открыто";
-        auto query = new QSqlQuery(db);
+    if(staticDb.open()) {
+        qDebug() << "Соединение открыто (статичесикие таблицы)";
+        auto query = new QSqlQuery(staticDb);
         auto statement = QString("select persid, nio, fio, department, doljnost, mail ") +
                                QString("from personnel ") +
                                QString("where pgruppa <> 'ГОСТИ' ") +
@@ -63,7 +63,7 @@ MainWindow::MainWindow(QWidget *parent) :
         }
     } else {
         qDebug() << "проблема при открытии соединения с бд:";
-        qDebug() << db.lastError().text();
+        qDebug() << staticDb.lastError().text();
     }
 
     auto departmentModel = new QStandardItemModel;
@@ -84,7 +84,7 @@ MainWindow::~MainWindow()
 void MainWindow::on_tableView_clicked(const QModelIndex &index)
 {
     auto personId = ui->tableView->model()->data(index.sibling(index.row(), 0)).toString();
-    auto query = new QSqlQuery(db);
+    auto query = new QSqlQuery(staticDb);
     auto statement = QString("select persid, fio, department, doljnost, foto, mobile, auto, tabelnomer, nio ") +
                            QString("from personnel ") +
                            QString("where persid = :persid");
@@ -106,7 +106,7 @@ void MainWindow::on_department_clicked(const QModelIndex &index)
 {
     auto department = index.data();
     auto dep = StaticData::departments.value(department.toString());
-    auto query = new QSqlQuery(db);
+    auto query = new QSqlQuery(staticDb);
     auto statement = QString("select persid, nio, fio, department, doljnost, mail ") +
             QString("from personnel ") +
             QString("where department like :dep ") +
@@ -138,4 +138,51 @@ void MainWindow::on_previousDayButton_clicked()
 {
     ui->calendarWidget->setSelectedDate(QDate::currentDate());
 }
+
+
+void MainWindow::on_dayInfo_toggled(bool checked)
+{
+        if (checked){
+            QString result;
+            QDate date = ui->calendarWidget->selectedDate();
+            auto datePattern = "%"+date.toString("yyyyMMdd")+"%";
+            QSqlQuery query = QSqlQuery(daysDb);
+            auto tableStatement = QString("SELECT a.RDB$RELATION_NAME "
+                                     "FROM RDB$RELATIONS a "
+                                     "WHERE COALESCE(RDB$SYSTEM_FLAG, 0) = 0 AND a.RDB$RELATION_NAME LIKE :date");
+            query.prepare(tableStatement);
+            query.bindValue(":date", datePattern);
+            query.exec();
+
+            if (query.first()){
+                result = query.value(0).toString();
+                qDebug() << result;
+            }
+            QSqlQuery dataQuery = QSqlQuery(daysDb);
+            QString infoStatement = QString("SELECT pers_id, fio, timecont, numobj ")
+                    .append("FROM " + result + " ")
+                    .append("WHERE fio IS NOT NULL ")
+                    .append("ORDER BY fio");
+
+            qDebug() << infoStatement;
+            dataQuery.prepare(infoStatement);
+            if (dataQuery.exec()){
+                qDebug() << "Запрос выполнен";
+                auto tableModel = new QSqlQueryModel();
+                tableModel->setQuery(std::move(dataQuery));
+                tableModel->setHeaderData(0, Qt::Horizontal, QObject::tr("КОД"));
+                tableModel->setHeaderData(1, Qt::Horizontal, QObject::tr("ФИО"));
+                tableModel->setHeaderData(2, Qt::Horizontal, QObject::tr("Время входа/выхода"));
+                tableModel->setHeaderData(3, Qt::Horizontal, QObject::tr("Индекс проходной"));
+
+                ui->tableView->setModel(tableModel);
+                ui->tableView->hideColumn(0);
+                ui->tableView->resizeColumnsToContents();
+                ui->tableView->show();
+            } else {
+                qDebug() << "проблема при выполнении запроса:";
+                qDebug() << dataQuery.lastError().text();
+            }
+        }
+    }
 
